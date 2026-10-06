@@ -1,0 +1,92 @@
+name: trivy-bp
+title: Trivy
+base: core26
+adopt-info: trivy
+license: Apache-2.0
+summary: find vulnerabilities, misconfigurations, secrets and SBOMs
+description: |
+  Trivy is a comprehensive and versatile security scanner.
+
+  It finds vulnerabilities (CVEs), IaC misconfigurations, exposed secrets,
+  software licenses and generates SBOMs, across container images, filesystems,
+  git repositories, virtual machine images and Kubernetes.
+
+  For a convenient alias:
+
+  sudo snap alias trivy-bp.trivy trivy
+
+  To scan images held by a local Docker daemon:
+
+  sudo snap connect trivy-bp:docker
+
+contact:
+  - https://github.com/barryprice
+issues:
+  - https://github.com/barryprice/snap-trivy/issues
+source-code:
+  - https://github.com/aquasecurity/trivy
+website:
+  - https://trivy.dev/
+grade: stable
+confinement: strict
+
+apps:
+  trivy:
+    command: bin/trivy
+    environment:
+      # Keep the (large) vulnerability DB cache out of the per-revision $HOME
+      # so it isn't copied on every refresh. --cache-dir / TRIVY_CACHE_DIR
+      # still take precedence.
+      XDG_CACHE_HOME: $SNAP_USER_COMMON/.cache
+    plugs: [home, removable-media, network, network-bind, docker]
+
+parts:
+  trivy:
+    plugin: nil
+    source: https://github.com/aquasecurity/trivy.git
+    source-type: git
+    # The upstream history is large; only the pinned tag is fetched below.
+    source-depth: 1
+    build-snaps:
+      # Base Go toolchain, pinned to match the minor in upstream's go.mod
+      # `go` directive (currently go 1.27.0). Bump manually when upstream
+      # raises it — Renovate can't track another repo's go.mod.
+      - go/1.27/stable
+    override-build: |
+      cd "${CRAFT_PART_SRC}"
+
+      # Pinned upstream release tag. Renovate bumps this line automatically
+      # when aquasecurity/trivy publishes a new release (see renovate.json).
+      # renovate: datasource=github-releases depName=aquasecurity/trivy
+      trivy_version="v0.75.0"
+
+      # Shallow-fetch exactly the pinned tag, then build that release.
+      git fetch --depth 1 --force origin tag "${trivy_version}"
+      git checkout --detach "${trivy_version}"
+
+      mkdir -p "${CRAFT_PART_INSTALL}/bin"
+      # GOTOOLCHAIN=auto: if the base Go 1.27 is older than upstream's go.mod
+      # requires, the exact toolchain is downloaded and used automatically.
+      # ldflags mirror upstream's goreleaser.yml (version without leading "v").
+      CGO_ENABLED=0 GOTOOLCHAIN=auto go build \
+        -trimpath -mod=readonly \
+        -ldflags "-s -w -X github.com/aquasecurity/trivy/pkg/version/app.ver=${trivy_version#v}" \
+        -o "${CRAFT_PART_INSTALL}/bin/" \
+        ./cmd/trivy
+
+      # Safety gate: run the freshly built binary so we never package a snap
+      # whose binary doesn't execute and report a version. The first line of
+      # `trivy --version` is always "Version: <ver>"; DB details may follow.
+      # A throwaway cache dir keeps the build host's cache out of the output.
+      version_cache="$(mktemp -d)"
+      version_output="$("${CRAFT_PART_INSTALL}/bin/trivy" --version --cache-dir "${version_cache}")" || {
+        echo "trivy --version failed" >&2
+        exit 1
+      }
+      rm -rf "${version_cache}"
+      snap_version="$(printf '%s\n' "${version_output}" | sed -n '1s/^Version: //p')"
+      [ -n "${snap_version}" ] || {
+        echo "trivy --version produced no parsable version: ${version_output}" >&2
+        exit 1
+      }
+      craftctl set version="${snap_version#v}"
