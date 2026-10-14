@@ -58,7 +58,7 @@ parts:
       # Pinned upstream release tag. Renovate bumps this line automatically
       # when aquasecurity/trivy publishes a new release (see renovate.json).
       # renovate: datasource=github-releases depName=aquasecurity/trivy
-      trivy_version="v0.75.0"
+      trivy_version="v0.76.0"
 
       # Shallow-fetch exactly the pinned tag, then build that release.
       git fetch --depth 1 --force origin tag "${trivy_version}"
