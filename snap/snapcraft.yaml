@@ -29,6 +29,13 @@ website:
   - https://trivy.dev/
 grade: stable
 confinement: strict
+platforms:
+  amd64:
+  arm64:
+  armhf:
+  ppc64el:
+  riscv64:
+  s390x:
 
 apps:
   trivy:
